@@ -1,0 +1,87 @@
+# ============================================
+# Backend (Laravel)
+# ============================================
+backend/vendor/
+backend/node_modules/
+backend/public/build
+backend/public/hot
+backend/public/storage
+backend/.env
+backend/.env.*
+backend/storage/*.key
+backend/storage/pail
+backend/storage/framework/cache/*
+backend/storage/framework/sessions/*
+backend/storage/framework/views/*
+backend/storage/logs/*
+!backend/storage/**/.gitignore
+backend/.phpunit.cache
+backend/.phpunit.result.cache
+backend/coverage
+backend/auth.json
+backend/Homestead.json
+backend/Homestead.yaml
+backend/*.sqlite
+backend/database/*.sqlite
+
+# ============================================
+# Frontend (will add later)
+# ============================================
+frontend/node_modules/
+frontend/.next/
+frontend/dist/
+frontend/build/
+frontend/.env.local
+frontend/.env.*.local
+frontend/.nuxt/
+frontend/.output/
+frontend/.vite/
+
+# ============================================
+# Docker & Containers
+# ============================================
+docker-compose.override.yml
+.docker/
+*.log
+
+# ============================================
+# IDE & Editor
+# ============================================
+.vscode/
+.idea/
+.fleet/
+.nova/
+.zed/
+.phpactor.json
+*.swp
+*.swo
+*~
+
+# ============================================
+# OS Files
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ============================================
+# Logs
+# ============================================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ============================================
+# Package Manager Locks (optional - some teams commit these)
+# ============================================
+# Uncomment if you don't want to commit lock files
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+# composer.lock
