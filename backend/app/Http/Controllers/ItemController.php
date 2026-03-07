@@ -153,25 +153,29 @@ class ItemController extends Controller
      * Simple moderation heuristic.
      *
      * Rules:
-     * +50 if title/content contains banned words
-     * +20 if content is mostly ALL CAPS
-     * +10 if content contains more than 3 links
+     * - +70 if the content contains at least one high-risk phrase
+     * - +8 / +15 / +25 for increasing ALL-CAPS ratio
+     * - +8 for each link
+     * - +10 for repeated spammy punctuation like "!!!" or "???"
+     *
+     * The final score is capped at 100.
      */
     private function computeRiskScore(string $title, string $content): int
     {
         $text = mb_strtolower($title . ' ' . $content);
         $score = 0;
 
-        $banned = [
+        $highRiskPhrases = [
             'spam',
             'scam',
             'buy now',
             'free money',
         ];
 
-        foreach ($banned as $word) {
-            if (str_contains($text, $word)) {
-                $score += 50;
+        // Any high-risk phrase is a strong signal.
+        foreach ($highRiskPhrases as $phrase) {
+            if (str_contains($text, $phrase)) {
+                $score += 70;
                 break;
             }
         }
@@ -180,23 +184,28 @@ class ItemController extends Controller
         $letters = preg_match_all('/[A-Za-z]/', $content);
         $upper = preg_match_all('/[A-Z]/', $content);
 
-        // Ignore very short text so tiny strings do not trigger the ALL CAPS rule.
+        // Only evaluate uppercase ratio if the text is long enough.
         if ($letters >= 20) {
             $ratio = $upper / $letters;
 
-            if ($ratio >= 0.8) {
-                $score += 20;
+            if ($ratio >= 0.9) {
+                $score += 25;
+            } elseif ($ratio >= 0.75) {
+                $score += 15;
+            } elseif ($ratio >= 0.6) {
+                $score += 8;
             }
         }
 
-        // Count URLs in the content.
+        // Add score for each link.
         $linkCount = preg_match_all('/https?:\/\/\S+/i', $content);
+        $score += $linkCount * 8;
 
-        if ($linkCount > 3) {
+        // Add a small penalty for repeated spammy punctuation.
+        if (preg_match('/[!?]{3,}/', $content)) {
             $score += 10;
         }
 
-        // Keep the score between 0 and 100.
         return min(100, $score);
     }
 
@@ -206,6 +215,6 @@ class ItemController extends Controller
      */
     private function suggestedAction(int $riskScore): string
     {
-        return $riskScore >= 50 ? 'reject' : 'approve';
+        return $riskScore >= 60 ? 'reject' : 'approve';
     }
 }
