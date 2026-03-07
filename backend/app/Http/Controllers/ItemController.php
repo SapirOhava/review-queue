@@ -15,6 +15,8 @@ class ItemController extends Controller
      * - search: string
      * - sort: created_at|risk_score|reviewed_at|title
      * - order: asc|desc
+     * - per_page: 1-100
+     * - page: handled automatically by Laravel paginator
      */
     public function index(Request $request)
     {
@@ -23,44 +25,50 @@ class ItemController extends Controller
             'search' => ['nullable', 'string', 'max:500'],
             'sort' => ['nullable', Rule::in(['created_at', 'risk_score', 'reviewed_at', 'title'])],
             'order' => ['nullable', Rule::in(['asc', 'desc'])],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
         $query = Item::query();
 
-        // Filter by state
+        // Filter by state if the client sent a state query param.
         if (!empty($validated['state'])) {
             $query->where('state', $validated['state']);
         }
 
-        // Search in title/content
+        // Search inside title or content if the client sent a search term.
         if (!empty($validated['search'])) {
             $search = $validated['search'];
+
+            // This creates a nested SQL condition like:
+            // WHERE (title LIKE '%term%' OR content LIKE '%term%')
             $query->where(function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
-                  ->orWhere('content', 'like', "%{$search}%");
+                    ->orWhere('content', 'like', "%{$search}%");
             });
         }
 
-        // Sorting (safe allowlist)
+        // Safe defaults if sort/order were not provided.
         $sort = $validated['sort'] ?? 'created_at';
         $order = $validated['order'] ?? 'desc';
 
-        // If sorting by reviewed_at, you might want reviewed items first
-        // but keep it simple and just orderBy.
         $query->orderBy($sort, $order);
 
-        // Keep it simple (no pagination requirement).
-        $items = $query->get();
+        // Pagination bonus:
+        // default to 10 items per page if the client doesn't send per_page.
+        $perPage = $validated['per_page'] ?? 10;
 
-        // Add a computed "suggested_action" for the heuristic (not stored in DB)
-        $items->transform(function (Item $item) {
+        // paginate() returns a paginator object, not just a plain collection.
+        $items = $query->paginate($perPage);
+
+        // Add a computed suggested_action field to each item in the current page.
+        // This is derived from risk_score and is not stored in the database.
+        $items->getCollection()->transform(function (Item $item) {
             $item->suggested_action = $this->suggestedAction($item->risk_score);
             return $item;
         });
 
-        return response()->json([
-            'items' => $items,
-        ]);
+        // 200 OK = the request succeeded and the list of items was returned.
+        return response()->json($items, 200);
     }
 
     /**
@@ -83,8 +91,10 @@ class ItemController extends Controller
             'risk_score' => $riskScore,
         ]);
 
+        // Add a computed suggested_action field for the API response.
         $item->suggested_action = $this->suggestedAction($item->risk_score);
 
+        // 201 Created = a new item was successfully created.
         return response()->json([
             'item' => $item,
         ], 201);
@@ -95,11 +105,13 @@ class ItemController extends Controller
      */
     public function show(Item $item)
     {
+        // Add a computed suggested_action field for the API response.
         $item->suggested_action = $this->suggestedAction($item->risk_score);
 
+        // 200 OK = the request succeeded and a single item was returned.
         return response()->json([
             'item' => $item,
-        ]);
+        ], 200);
     }
 
     /**
@@ -108,8 +120,11 @@ class ItemController extends Controller
      */
     public function review(Request $request, Item $item)
     {
-        // Optional: prevent re-review (simple rule). If you want to allow re-review, remove this.
+        // Prevent re-review:
+        // only items in the pending state can be reviewed.
         if ($item->state !== 'pending') {
+            // 409 Conflict = the request conflicts with the current item state.
+            // This item is already approved or rejected, so it cannot be reviewed again.
             return response()->json([
                 'message' => 'Item was already reviewed.',
             ], 409);
@@ -125,29 +140,28 @@ class ItemController extends Controller
         $item->reviewed_at = now();
         $item->save();
 
+        // Add a computed suggested_action field for the API response.
         $item->suggested_action = $this->suggestedAction($item->risk_score);
 
+        // 200 OK = the item was successfully reviewed and updated.
         return response()->json([
             'item' => $item,
-        ]);
+        ], 200);
     }
 
     /**
-     * Moderation heuristic:
-     * Keep it simple and discussable.
+     * Simple moderation heuristic.
      *
      * Rules:
-     * +50 if contains banned words (in title or content)
-     * +20 if content looks like ALL CAPS (mostly letters are uppercase)
-     * +10 if more than 3 links
+     * +50 if title/content contains banned words
+     * +20 if content is mostly ALL CAPS
+     * +10 if content contains more than 3 links
      */
     private function computeRiskScore(string $title, string $content): int
     {
         $text = mb_strtolower($title . ' ' . $content);
-
         $score = 0;
 
-        // 1) Banned words rule
         $banned = [
             'spam',
             'scam',
@@ -158,34 +172,37 @@ class ItemController extends Controller
         foreach ($banned as $word) {
             if (str_contains($text, $word)) {
                 $score += 50;
-                break; // only add once
+                break;
             }
         }
 
-        // 2) ALL CAPS-ish rule (simple approximation)
-        // Count letters and how many are uppercase in the original content.
-        $letters = preg_match_all('/[A-Za-z]/', $content, $m1);
-        $upper = preg_match_all('/[A-Z]/', $content, $m2);
+        // Count all letters and uppercase letters in the original content.
+        $letters = preg_match_all('/[A-Za-z]/', $content);
+        $upper = preg_match_all('/[A-Z]/', $content);
 
-        if ($letters >= 20) { // ignore tiny strings
-            $ratio = $upper / max(1, $letters);
+        // Ignore very short text so tiny strings do not trigger the ALL CAPS rule.
+        if ($letters >= 20) {
+            $ratio = $upper / $letters;
+
             if ($ratio >= 0.8) {
                 $score += 20;
             }
         }
 
-        // 3) Too many links rule
-        $linkCount = preg_match_all('/https?:\/\/\S+/i', $content, $m3);
+        // Count URLs in the content.
+        $linkCount = preg_match_all('/https?:\/\/\S+/i', $content);
+
         if ($linkCount > 3) {
             $score += 10;
         }
 
-        // Keep it bounded (nice for UI)
+        // Keep the score between 0 and 100.
         return min(100, $score);
     }
 
     /**
-     * Suggested action derived from risk_score (not stored).
+     * Compute a suggested action from the risk score.
+     * This value is derived and is not stored in the database.
      */
     private function suggestedAction(int $riskScore): string
     {
