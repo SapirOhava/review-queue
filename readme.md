@@ -279,14 +279,28 @@ The frontend is implemented with **Vue + Vite**, and styled with **Tailwind CSS 
 
 The UI includes:
 
-### Queue View
+### Create Item Form
 
-Displays items in the review queue including:
+Users can submit a new item to the queue by entering:
 
 - title
-- state
+- content
+
+Submitting the form creates the item through the backend API and refreshes the queue.
+
+### Queue View
+
+The queue view is the main screen of the application. It includes:
+
+- the list of items currently returned from the backend
+- each item's state
 - risk score
 - suggested action
+- filtering by state
+- free-text search
+- sorting
+- pagination
+- loading and error states for the list
 
 ### Item Detail Modal
 
@@ -296,14 +310,13 @@ Allows a reviewer to:
 - approve or reject
 - optionally add a note
 
-### Additional UI features
+So in practice, the main page combines:
+- item creation
+- queue browsing
+- filtering / sorting / pagination
+- opening an item for review
 
-- filtering by state
-- text search
-- sorting
-- pagination
-- loading indicators
-- error handling
+I kept this as a single-page flow because it felt simpler and more appropriate for the timebox.
 
 ---
 
